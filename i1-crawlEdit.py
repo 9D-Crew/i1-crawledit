@@ -1,5 +1,5 @@
-print("i1-crawlEdit (C) 2025 9D Crew\nConnecting to i1...")
-import paramiko; import configparser; import ast; import sys; import time
+print("i1-crawlEdit (C) 2026 9D Crew\nConnecting to i1...")
+import paramiko; import configparser; import ast; import sys; import time; import os; import subprocess; import json
 
 config = configparser.ConfigParser(); config.read('config.ini'); ssh_config = config['SSH']
 ip = ssh_config.get('IP'); port = ssh_config.getint('PORT')
@@ -10,24 +10,43 @@ ssh.connect(hostname=ip, port=port, username=username, password=password); sftp 
 stdin, stdout, stderr = ssh.exec_command("perl -e 'print time, \"\\n\";'")
 epoch = stdout.read().decode().strip()
 
-print("Loading config...")
-sftp.get("/home/dgadmin/config/current/config.py", "./config.py")
+os.makedirs("./temp", exist_ok=True)
+print("loading datastore...")
+sftp.get("/twc/data/datastore/ds.dat", "./temp/ds.dat")
+sftp.get("/twc/data/datastore/ds.stat", "./temp/ds.stat")
 sftp.close(); ssh.close()
 
+if sys.platform.startswith("win"):
+    pypath = "py"
+else:
+    pypath = "python3"
+subprocess.run([pypath, "loadi1datastore.py", "./temp"])
+# okay we have successfully stolen code
 print("Loading crawls...")
 
-with open("config.py") as file:
-    code = file.read()
-tree = ast.parse(code)
-crawls = None
-for node in ast.walk(tree):
-    if isinstance(node, ast.Assign):
-        for target in node.targets:
-            if isinstance(target, ast.Attribute) and target.attr == "crawls":
-                crawls = ast.literal_eval(node.value)
-                break
+# okay we need to load the crawls into our format now from the renderE format.
+# better then dealing with the datastore directly! not by much though...
+with open("ds.json", 'r') as datastore:
+    jsondata = json.load(datastore)
 
-print("--------------------\ni1-crawlEdit v1\n")
+serialNum = jsondata['Config.1.LASCrawl.serialNum'][0]
+crawls = []
+i = 0
+while f"Config.1.Ldl_LASCrawl.crawls.{i}.0" in jsondata:
+    start_time = int(jsondata[f"Config.1.Ldl_LASCrawl.crawls.{i}.0"][0])
+    end_time = int(jsondata[f"Config.1.Ldl_LASCrawl.crawls.{i}.1"][0])
+    windows = []
+    j = 0
+    while f"Config.1.Ldl_LASCrawl.crawls.{i}.2.{j}.0" in jsondata:
+        a = int(jsondata[f"Config.1.Ldl_LASCrawl.crawls.{i}.2.{j}.0"][0])
+        b = int(jsondata[f"Config.1.Ldl_LASCrawl.crawls.{i}.2.{j}.1"][0])
+        windows.append((a, b))
+        j += 1
+    crawl_text = jsondata[f"Config.1.Ldl_LASCrawl.crawls.{i}.3"][0]
+    crawls.append((start_time, end_time, windows, crawl_text))
+    i += 1
+
+print("----------\ni1-crawlEdit v2, the simplicity update\n")
 
 while True:
     cmd = input("\\")
@@ -64,28 +83,26 @@ while True:
         crawls.append(crawl_entry)
     if cmd == "e":
         print("Saving config...")      
-        dcrawlsidx = code.index("d.crawls")
-        dcrawlsidx2 = code.index("]\n", dcrawlsidx)
-        dcrawls = code[dcrawlsidx:(dcrawlsidx2+1)]
+        with open('./temp/crawls.py', 'w') as f:
+            f.write("d = twc.Data()\n")
+            f.write(f"d.serialNum={serialNum}\n")
+            f.write("d.crawls=[\n")
+            for item in crawls:
+                f.write(f"({item[0]}, {item[1]}, {item[2]}, {item[3]!r}),\n")
+            f.write("]\n")
+            f.write("dsm.set('Config.1.Ldl_LASCrawl', d, 0)\n")
+            f.write("dsm.set('Config.1.LASCrawl', d, 0)")
+        print("sending config")
+        config = configparser.ConfigParser(); config.read('config.ini'); ssh_config = config['SSH']
+        ip = ssh_config.get('IP'); port = ssh_config.getint('PORT')
+        username = ssh_config.get('USERNAME'); password = ssh_config.get('PASSWORD')
+        ssh = paramiko.SSHClient(); ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        ssh.connect(hostname=ip, port=port, username=username, password=password); sftp = ssh.open_sftp()
 
-        newdcrawls = "d.crawls = [\n"
-        for crawl in crawls:
-            newdcrawls += f"    {str(crawl)},\n"
-        newdcrawls += "]"
-        
-        code = code.replace(dcrawls, newdcrawls, 1)
-        with open("config.py", "w") as f:
-            f.write(code)
-        # push config to i1
-        ssh = paramiko.SSHClient()
-        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        ssh.connect(hostname=ip, port=port, username=username, password=password)
-        sftp = ssh.open_sftp()
-        sftp.put("config.py", "/home/dgadmin/config/current/config.py")
-        sftp.close()
-        shell = ssh.invoke_shell()
-        shell.send("su -l dgadmin\n"); time.sleep(1)
-        shell.send("runomni /twc/util/loadSCMTconfig.pyc /home/dgadmin/config/current/config.py\n"); time.sleep(2)
-        ssh.close()
-        print("Config Saved!")
+        sftp.put("./temp/crawls.py","/home/dgadmin/config/crawls.py")
+        time.sleep(2)
+        stdin, stdout, stderr = ssh.exec_command("su -l dgadmin -c 'runomni /twc/util/loadSCMTconfig.pyc /home/dgadmin/config/crawls.py'")
+        time.sleep(2)
+        sftp.close(); ssh.close()
+        print("complete?")
         sys.exit(0)
