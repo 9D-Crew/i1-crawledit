@@ -8,8 +8,8 @@
 Simple and easy to use Ad Crawl editor for the Intellistar 1.
 
 SUPPORTED i1's:
-[X] Perris
-[ ] Flat Rock (please make a fork and open a PR if you get it working)
+Should work with all Intellistar 1 Systems as long as SSH is working for root.
+Note that expired/delete crawls still appear in the datastore and can be safely ignored.
 
 HOW TO USE:
 Simply install the requirements.txt with pip, update the config.ini with your SSH info, and run the py file.
