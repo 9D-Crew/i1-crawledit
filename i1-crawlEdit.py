@@ -46,6 +46,9 @@ while f"Config.1.Ldl_LASCrawl.crawls.{i}.0" in jsondata:
     crawls.append((start_time, end_time, windows, crawl_text))
     i += 1
 
+epoch = int(epoch)
+crawls = [item for item in crawls if item[1] > epoch]
+
 print("----------\ni1-crawlEdit v2, the simplicity update\n")
 
 while True:
@@ -103,6 +106,7 @@ while True:
         time.sleep(2)
         stdin, stdout, stderr = ssh.exec_command("su -l dgadmin -c 'runomni /twc/util/loadSCMTconfig.pyc /home/dgadmin/config/crawls.py'")
         time.sleep(2)
+        stdin, stdout, stderr = ssh.exec_command("su -l dgadmin -c 'killall XFree86'")
         sftp.close(); ssh.close()
         print("complete?")
         sys.exit(0)
